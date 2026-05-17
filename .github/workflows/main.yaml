@@ -1,0 +1,100 @@
+name: Build and Release
+
+env:
+  RELEASE: 5.0.0.43
+
+on:
+  push:
+    tags:
+      - '*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and upload
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        arch: [aarch64, armv7hl, i486]
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        submodules: 'true'
+
+    - name: Clone build action
+      uses: actions/checkout@v6
+      with:
+        repository: coderus/github-sfos-build
+        ref: master
+        path: .github/actions/sfos-build
+
+    # Save build results to RPMS folder for compatibility with other sfos-build scripts (even though they aren't RPM files)
+    - name: Modify docker script
+      run: |
+        cat <<EOF > .github/actions/sfos-build/docker.sh
+        set -ex
+
+        mkdir -p td
+        cd td
+        cp -r /workspace/. .
+        mkdir -p tdlib build
+        cd build
+
+        mb2 -t SailfishOS-\${INPUT_RELEASE}-\${INPUT_ARCH} build-init
+        mb2 -t SailfishOS-\${INPUT_RELEASE}-\${INPUT_ARCH} build-shell --maintain zypper install -y cmake ninja ccache pkgconfig\(openssl\) gperf
+        mb2 -t SailfishOS-\${INPUT_RELEASE}-\${INPUT_ARCH} build-shell cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX:PATH=../tdlib -DTD_ENABLE_LTO=ON ..
+        mb2 -t SailfishOS-\${INPUT_RELEASE}-\${INPUT_ARCH} build-shell cmake --build . --target install
+        mb2 -t SailfishOS-\${INPUT_RELEASE}-\${INPUT_ARCH} build-shell strip ../tdlib/lib/libtdjson.so.*
+
+        mkdir -p /workspace/RPMS/\${INPUT_ARCH}/lib /workspace/RPMS/include
+        cp -r ../tdlib/lib/libtdjson.so.* /workspace/RPMS/\${INPUT_ARCH}/lib/
+        cp -r ../tdlib/include/. /workspace/RPMS/include/
+        EOF
+      shell: bash
+
+    - name: Build ${{ matrix.arch }} on ${{ env.RELEASE }}
+      uses: ./.github/actions/sfos-build
+      with:
+        release: ${{ env.RELEASE }}
+        arch: ${{ matrix.arch }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: build-${{ matrix.arch }}-SailfishOS-${{ env.RELEASE }}
+        path: RPMS/
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: contains(github.ref, 'v')
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: tdlib
+        pattern: build-*
+        merge-multiple: true
+
+    - name: Create release
+      run: |
+        set -x
+
+        cd tdlib
+        zip -r ../tdlib.zip .
+        cd ..
+
+        tag_name="${GITHUB_REF##*/}"
+        gh release create "$tag_name" tdlib.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
