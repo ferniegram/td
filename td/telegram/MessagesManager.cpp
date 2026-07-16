@@ -8173,7 +8173,7 @@ bool MessagesManager::can_approve_message(DialogId dialog_id, const Message *m) 
   if (is_from_user) {
     auto channel_id = td_->chat_manager_->get_monoforum_channel_id(dialog_id.get_channel_id());
     if (!td_->chat_manager_->get_channel_status(channel_id).can_post_messages()) {
-      // there are no enough rights
+      // there are not enough rights
       return false;
     }
   } else {
@@ -11467,18 +11467,10 @@ MessagesManager::MessageInfo MessagesManager::parse_ephemeral_message(
   message_info.ttl_period = 7 * 86400;
   // message_info.noforwards = message->noforwards_;
   // message_info.invert_media = message->invert_media_;
-  // message_info.effect_id = MessageEffectId(message->effect_);
   if (message->top_msg_id_ > 0) {
     auto top_thread_message_id = MessageId(ServerMessageId(message->top_msg_id_));
-    if (message_info.reply_header.top_thread_message_id_ != MessageId()) {
-      if (message_info.reply_header.top_thread_message_id_ != top_thread_message_id) {
-        LOG(ERROR) << "Receive ephemeral message in thread of " << top_thread_message_id << " and "
-                   << message_info.reply_header.top_thread_message_id_;
-      }
-    } else {
-      message_info.reply_header.top_thread_message_id_ = top_thread_message_id;
-      message_info.reply_header.is_topic_message_ = td->dialog_manager_->can_dialog_have_threads(dialog_id);
-    }
+    message_info.reply_header.top_thread_message_id_ = top_thread_message_id;
+    message_info.reply_header.is_topic_message_ = td->dialog_manager_->can_dialog_have_threads(dialog_id);
   }
   message_info.content = get_message_content(
       td,
@@ -20813,7 +20805,7 @@ unique_ptr<MessagesManager::Message> MessagesManager::create_message_to_send(
   auto top_thread_message_id = is_general ? MessageId() : initial_top_thread_message_id;
   auto same_chat_reply_to_message_id = input_reply_to.get_same_chat_reply_to_message_id();
   if (same_chat_reply_to_message_id.is_valid() || same_chat_reply_to_message_id.is_valid_scheduled()) {
-    // the message was forcely preloaded in create_message_input_reply_to
+    // the message was forcibly preloaded in create_message_input_reply_to
     // it can be missing, only if it is unknown message from a push notification, or an unknown top thread message
     const Message *reply_m = get_message(d, same_chat_reply_to_message_id);
     if (reply_m != nullptr && !same_chat_reply_to_message_id.is_scheduled()) {
@@ -21877,22 +21869,20 @@ void MessagesManager::on_cover_upload(DialogId dialog_id, MessageId message_id, 
 
   MessageFullId message_full_id{dialog_id, message_id};
   const Message *m = get_message(message_full_id);
-  if (m == nullptr) {
+  bool is_edit = message_id.is_any_server();
+  if (m == nullptr || (is_edit && m->edit_generation != edit_generation)) {
     // message has already been deleted by the user or sent to inaccessible channel, do not need to send or edit it
     // file upload should be already canceled in cancel_send_message_query
     LOG(INFO) << "Message with a cover has already been deleted";
     return;
   }
 
-  bool is_edit = m->message_id.is_any_server();
   if (!is_edit && result.is_ok() && !is_ephemeral_message(m)) {
     result = can_send_message(dialog_id);
   }
   if (result.is_error()) {
     if (is_edit) {
-      if (m->edit_generation == edit_generation) {
-        fail_edit_message_media(message_full_id, result.move_as_error());
-      }
+      fail_edit_message_media(message_full_id, result.move_as_error());
     } else {
       fail_send_message(message_full_id, result.move_as_error());
     }
@@ -21902,6 +21892,7 @@ void MessagesManager::on_cover_upload(DialogId dialog_id, MessageId message_id, 
 }
 
 void MessagesManager::do_send_message(DialogId dialog_id, const Message *m, int32 media_pos, vector<int> bad_parts) {
+  CHECK(m != nullptr);
   bool is_edit = m->message_id.is_any_server();
   if (is_edit) {
     LOG(INFO) << "Do edit " << (media_pos == -1 ? "" : (PSTRING() << "media " << media_pos << " of "))
@@ -22084,7 +22075,8 @@ void MessagesManager::on_message_media_uploaded(DialogId dialog_id, const Messag
     if (!is_uploaded_input_media(input_media.media_, m->media_album_id != 0)) {
       auto file_upload_id = get_message_send_file_upload_id(dialog_id, m, media_pos);
       auto thumbnail_file_upload_id = get_message_send_thumbnail_file_upload_id(dialog_id, m, media_pos);
-      auto cover_file_ids = get_message_content_cover_any_file_ids(td_, m->content.get());
+      auto cover_file_ids = get_message_content_cover_any_file_ids(
+          td_, is_edit ? get_edited_message_content({dialog_id, message_id}) : m->content.get());
       FileId cover_file_id;
       if (!cover_file_ids.empty()) {
         if (media_pos == -1) {
@@ -22260,7 +22252,8 @@ void MessagesManager::on_upload_message_media_success(DialogId dialog_id, Messag
 
   CHECK(message_id.is_valid() || message_id.is_valid_scheduled());
   Message *m = get_message(d, message_id);
-  if (m == nullptr || (m->message_id.is_any_server() && m->edit_generation != edit_generation)) {
+  auto is_edit = message_id.is_any_server();
+  if (m == nullptr || (is_edit && m->edit_generation != edit_generation)) {
     // message has already been deleted by the user or sent to inaccessible channel
     // don't need to send error to the user, because the message has already been deleted
     // and there is nothing to be deleted from the server
@@ -22273,7 +22266,6 @@ void MessagesManager::on_upload_message_media_success(DialogId dialog_id, Messag
     return;  // the message should be deleted soon
   }
 
-  auto is_edit = message_id.is_any_server();
   EditedMessage *edited_message = nullptr;
   if (is_edit) {
     edited_message = edited_messages_.get_pointer(dialog_id, message_id);
@@ -22318,7 +22310,8 @@ void MessagesManager::on_upload_message_media_file_parts_missing(DialogId dialog
   CHECK(d != nullptr);
 
   Message *m = get_message(d, message_id);
-  if (m == nullptr || (m->message_id.is_any_server() && m->edit_generation != edit_generation)) {
+  bool is_edit = message_id.is_any_server();
+  if (m == nullptr || (is_edit && m->edit_generation != edit_generation)) {
     // message has already been deleted by the user, sent to inaccessible channel
     // don't need to send error to the user, because the message has already been deleted
     // and there is nothing to be deleted from the server
@@ -22342,7 +22335,8 @@ void MessagesManager::on_upload_message_media_fail(DialogId dialog_id, MessageId
   CHECK(d != nullptr);
 
   Message *m = get_message(d, message_id);
-  if (m == nullptr || (m->message_id.is_any_server() && m->edit_generation != edit_generation)) {
+  auto is_edit = message_id.is_any_server();
+  if (m == nullptr || (is_edit && m->edit_generation != edit_generation)) {
     // message has already been deleted by the user or sent to inaccessible channel
     // don't need to send error to the user, because the message has already been deleted
     // and there is nothing to be deleted from the server
@@ -22372,7 +22366,8 @@ void MessagesManager::on_upload_message_media_finished(int64 media_album_id, Dia
       return;
     }
     const auto *m = get_message({dialog_id, message_id});
-    if (m == nullptr || (m->message_id.is_any_server() && m->edit_generation != edit_generation)) {
+    auto is_edit = message_id.is_any_server();
+    if (m == nullptr || (is_edit && m->edit_generation != edit_generation)) {
       LOG(INFO) << "The message edit generation doesn't match";
       return;
     }
@@ -23526,8 +23521,8 @@ void MessagesManager::on_message_media_edited(
 
   auto edited_message = edited_messages_.get_pointer(dialog_id, message_id);
   CHECK(edited_message->content_ != nullptr);
-  //CHECK(edited_message->file_upload_ids_ == file_upload_ids);
-  //CHECK(edited_message->thumbnail_file_upload_ids_ == thumbnail_file_upload_ids);
+  CHECK(edited_message->file_upload_ids_ == file_upload_ids);
+  CHECK(edited_message->thumbnail_file_upload_ids_ == thumbnail_file_upload_ids);
   if (result.is_ok()) {
     // message content has already been replaced from updateEdit{Channel,}Message
     // need only merge files from edited_content with their uploaded counterparts
@@ -26612,7 +26607,7 @@ bool MessagesManager::add_new_message_notification(Dialog *d, Message *m, bool f
     return false;
   }
 
-  VLOG(notifications) << "Trying to " << (force ? "forcely " : "") << "add new message notification for "
+  VLOG(notifications) << "Trying to " << (force ? "forcibly " : "") << "add new message notification for "
                       << m->message_id << " in " << d->dialog_id
                       << (m->disable_notification ? " silently" : " with sound");
 
@@ -29118,7 +29113,7 @@ void MessagesManager::on_update_dialog_group_call(DialogId dialog_id, bool has_a
   }
   if (!force && d->active_group_call_id.is_valid() && has_active_group_call &&
       td_->group_call_manager_->is_group_call_being_joined(d->active_group_call_id)) {
-    LOG(INFO) << "Ignore update in a being joined group call";
+    LOG(INFO) << "Ignore update in a group call being joined";
     return;
   }
 
@@ -29173,7 +29168,7 @@ void MessagesManager::on_update_dialog_default_join_group_call_as_dialog_id(Dial
 
   if (!force && d->active_group_call_id.is_valid() &&
       td_->group_call_manager_->is_group_call_being_joined(d->active_group_call_id)) {
-    LOG(INFO) << "Ignore default_join_as_dialog_id update in a being joined group call";
+    LOG(INFO) << "Ignore default_join_as_dialog_id update in a group call being joined";
     return;
   }
 
@@ -32084,7 +32079,7 @@ bool MessagesManager::update_message(Dialog *d, Message *old_message, unique_ptr
         CHECK(d->scheduled_messages != nullptr);
         CHECK(is_message_in_dialog);
         // scheduled_message_date_ must be in sync with scheduled_messages_, therefore it must not be changed there.
-        // The message will be deleted and readded soon because its message_id has changed
+        // The message will be deleted and re-added soon because its message_id has changed
         // int32 &date = d->scheduled_messages->scheduled_message_date_[message_id.get_scheduled_server_message_id()];
         // CHECK(date != 0);
         // date = new_message->date;

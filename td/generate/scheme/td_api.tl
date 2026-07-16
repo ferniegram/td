@@ -12448,10 +12448,10 @@ addQuickReplyShortcutInlineQueryResultMessage shortcut_name:string reply_to_mess
 //@input_message_contents Contents of messages to be sent. At most 10 messages can be added to an album. All messages must have the same value of show_caption_above_media
 addQuickReplyShortcutMessageAlbum shortcut_name:string reply_to_message_id:int53 input_message_contents:vector<InputMessageContent> = QuickReplyMessages;
 
-//@description Readds quick reply messages which failed to add. Can be called only for messages for which messageSendingStateFailed.can_retry is true and after specified in messageSendingStateFailed.retry_after time passed.
-//-If a message is readded, the corresponding failed to send message is deleted. Returns the sent messages in the same order as the message identifiers passed in message_ids. If a message can't be readded, null will be returned instead of the message
+//@description Re-adds quick reply messages which failed to add. Can be called only for messages for which messageSendingStateFailed.can_retry is true and after specified in messageSendingStateFailed.retry_after time passed.
+//-If a message is re-added, the corresponding failed to send message is deleted. Returns the sent messages in the same order as the message identifiers passed in message_ids. If a message can't be readded, null will be returned instead of the message
 //@shortcut_name Name of the target shortcut
-//@message_ids Identifiers of the quick reply messages to readd. Message identifiers must be in a strictly increasing order
+//@message_ids Identifiers of the quick reply messages to re-add. Message identifiers must be in a strictly increasing order
 readdQuickReplyShortcutMessages shortcut_name:string message_ids:vector<int53> = QuickReplyMessages;
 
 //@description Asynchronously edits the text, media or caption of a quick reply message. Use quickReplyMessage.can_be_edited to check whether a message can be edited.
@@ -13376,7 +13376,7 @@ leaveChat chat_id:int53 = Ok;
 //@forward_limit The number of earlier messages from the chat to be forwarded to the new member; up to 100. Ignored for supergroups and channels, or if the added user is a bot
 addChatMember chat_id:int53 user_id:int53 forward_limit:int32 = FailedToAddMembers;
 
-//@description Adds multiple new members to a chat; requires can_invite_users member right. Currently, this method is only available for supergroups and channels.
+//@description Adds multiple new members to a chat; requires can_invite_users member right. Currently, this method is available only in supergroups and channels.
 //-This method can't be used to join a chat. Members can't be added to a channel if it has more than 200 members. Returns information about members that weren't added
 //@chat_id Chat identifier
 //@user_ids Identifiers of the users to be added to the chat. The maximum number of added users is 20 for supergroups and 100 for channels
@@ -13412,8 +13412,8 @@ canTransferOwnership = CanTransferOwnershipResult;
 //@password The 2-step verification password of the current user
 transferChatOwnership chat_id:int53 user_id:int53 password:string = Ok;
 
-//@description Returns the user who will become the owner of the chat after 7 days if the current user does not return to the supergroup or channel during that period or immediately for basic groups; requires owner privileges in the chat.
-//-Available only for basic groups, supergroups, and channel chats
+//@description Returns the user who will become the owner of the chat after 7 days if the current user does not return to the supergroup or channel during that period or immediately for basic groups;
+//-requires owner privileges in the chat. Available only for basic groups, supergroups, and channel chats
 //@chat_id Chat identifier
 getChatOwnerAfterLeaving chat_id:int53 = User;
 
@@ -13902,7 +13902,7 @@ createChatInviteLink chat_id:int53 name:string expiration_date:int32 member_limi
 //-Subscription period must be 2592000 in production environment, and 60 or 300 if Telegram test environment is used
 createChatSubscriptionInviteLink chat_id:int53 name:string subscription_pricing:starSubscriptionPricing = ChatInviteLink;
 
-//@description Edits a non-primary invite link for a chat. Available for basic groups, supergroups, and channels.
+//@description Edits a non-primary invite link for a chat. Available in basic groups, supergroups, and channels.
 //-If the link creates a subscription, then expiration_date, member_limit and creates_join_request must not be used.
 //-Requires administrator privileges and can_invite_users right in the chat for own links and owner privileges for other links
 //@chat_id Chat identifier
@@ -13944,7 +13944,7 @@ getChatInviteLinks chat_id:int53 creator_user_id:int53 is_revoked:Bool offset_da
 //@limit The maximum number of chat members to return; up to 100
 getChatInviteLinkMembers chat_id:int53 invite_link:string only_with_expired_subscription:Bool offset_member:chatInviteLinkMember limit:int32 = ChatInviteLinkMembers;
 
-//@description Revokes invite link for a chat. Available for basic groups, supergroups, and channels. Requires administrator privileges and can_invite_users right in the chat for own links and owner privileges for other links.
+//@description Revokes invite link for a chat. Available in basic groups, supergroups, and channels. Requires administrator privileges and can_invite_users right in the chat for own links and owner privileges for other links.
 //-If a primary link is revoked, then additionally to the revoked link returns new primary link
 //@chat_id Chat identifier
 //@invite_link Invite link to be revoked
@@ -15041,7 +15041,7 @@ getSupergroupMembers supergroup_id:int53 filter:SupergroupMembersFilter offset:i
 closeSecretChat secret_chat_id:int32 = Ok;
 
 
-//@description Returns a list of service actions taken by chat members and administrators in the last 48 hours. Available only for supergroups and channels. Requires administrator rights. Returns results in reverse chronological order (i.e., in order of decreasing event_id)
+//@description Returns a list of service actions taken by chat members and administrators in the last 48 hours. Available only in supergroups and channels. Requires administrator rights. Returns results in reverse chronological order (i.e., in order of decreasing event_id)
 //@chat_id Chat identifier
 //@query Search query by which to filter events
 //@from_event_id Identifier of an event from which to return results. Use 0 to get results from the latest events
@@ -15256,7 +15256,7 @@ getUpgradedGiftsPromotionalAnimation = Animation;
 //@received_gift_id Identifier of the unique gift
 //@price The new price for the unique gift; pass null to disallow gift resale. The current user will receive
 //-getOption("gift_resale_star_earnings_per_mille") Telegram Stars for each 1000 Telegram Stars paid for the gift if the gift price is in Telegram Stars or
-//-getOption("gift_resale_ton_earnings_per_mille") TON Grams for each 1000 Grams paid for the gift if the gift price is in Grams
+//-getOption("gift_resale_gram_earnings_per_mille") TON Grams for each 1000 Grams paid for the gift if the gift price is in Grams
 setGiftResalePrice received_gift_id:string price:GiftResalePrice = Ok;
 
 //@description Returns upgraded gifts that can be bought from other owners using sendResoldGift
